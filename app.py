@@ -9,84 +9,109 @@ import os
 import subprocess
 
 # --- Configuration ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]  # Store your key in Streamlit secrets
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 MODEL = "gpt-4-0613"
 
 # --- Helper: Call GPT to adjust code ---
 def modify_code_with_gpt(source_code: str, user_request: str) -> str:
-    prompt = f"You are a Python expert. The following code:\n```python\n{source_code}\n```\nUser requests: {user_request}\nModify the code accordingly and return the full updated script without explanations."
+    prompt = (
+        "You are a Python expert. The following code:\n"
+        f"```python\n{source_code}\n```\n"
+        f"User requests: {user_request}\n"
+        "Modify the code accordingly and return the full updated script without explanations."
+    )
     resp = openai.ChatCompletion.create(
         model=MODEL,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides Python code updates."},
-            {"role": "user", "content": prompt},
+            {"role": "user",   "content": prompt},
         ],
-        functions=[],
         temperature=0
     )
     return resp.choices[0].message.content
 
 # --- App UI ---
 st.title("Interactive Information-Theoretic Analysis App")
-st.markdown(
-    "Upload your dataset, choose metrics, and optionally edit the analysis code via GPT." 
-)
+st.markdown("Upload your dataset, choose a metric, and optionally edit the code via GPT.")
 
-# File upload
-uploaded_file = st.file_uploader("Upload CSV or Excel data", type=["csv", "xlsx"])
-if uploaded_file:
-    try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        st.success("Data loaded successfully!")
-        if st.checkbox("Show raw data"):
-            st.dataframe(df)
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
-        st.stop()
+# 1) Upload data
+uploaded_file = st.file_uploader("Upload CSV or XLSX data", type=["csv", "xlsx"])
+if not uploaded_file:
+    st.info("Please upload a data file to continue.")
+    st.stop()
 
-    # Select analysis script
-    st.sidebar.header("Analysis Options")
-    default_script = st.sidebar.selectbox(
-        "Choose a built-in script", ["Shannon Entropy Violin", "Custom Metric"]
-    )
-    if default_script == "Shannon Entropy Violin":
-        with open("scripts/shannon_entropy.py") as f:
-            source_code = f.read()
+try:
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
     else:
-        source_code = st.sidebar.text_area("Paste your custom script", height=200)
+        df = pd.read_excel(uploaded_file)
+    st.success("Data loaded successfully!")
+    if st.checkbox("Show raw data"):
+        st.dataframe(df)
+except Exception as e:
+    st.error(f"Failed to load data: {e}")
+    st.stop()
 
-    # GPT editing
-    user_req = st.sidebar.text_input("Edit script? Describe changes here:")
-    if user_req:
-        st.info("Modifying code via GPT...")
-        try:
-            updated_code = modify_code_with_gpt(source_code, user_req)
-            st.code(updated_code, language='python')
-            source_code = updated_code
-        except Exception as e:
-            st.error(f"GPT code modification failed: {e}")
+# 2) Choose script
+st.sidebar.header("Analysis Options")
+script_map = {
+    "Shannon Entropy":       "scripts/Oxi_Shannon.py",
+    "KL Divergence":         "scripts/Oxi_KL.py",
+    "Mutual Information":    "scripts/Oxi_MI.py",
+    "Per-site MI":           "scripts/Oxi_MI_per_site.py",
+    "Fisher Information":    "scripts/Oxi_FIM.py",
+    "Fisher–Rao Distance":   "scripts/Oxi_Fisher_Rao_d.py",
+}
+choice = st.sidebar.selectbox("Select metric to run", list(script_map.keys()))
 
-    # Execute script
-    if st.button("Run Analysis"):
-        # Save code to temp file
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
-        tmp.write(source_code.encode('utf-8'))
-        tmp.close()
-        try:
-            # Run script
-            result = subprocess.run(
-                ["python", tmp.name], capture_output=True, text=True, check=True
-            )
-            st.text("Script Output:")
-            st.text(result.stdout)
-            # Display generated plot if exists
-            img_path = "shannon_entropy_violin.png"
-            if os.path.exists(img_path):
-                st.image(img_path, use_column_width=True)
-        except subprocess.CalledProcessError as e:
-            st.error(f"Error running script: {e.stderr}")
-        finally:
-            os.unlink(tmp.name)
+# 3) Load source
+with open(script_map[choice], "r") as f:
+    source_code = f.read()
+st.sidebar.write(f"Loaded: `{script_map[choice]}`")
+
+# 4) Optional GPT code edit
+user_req = st.sidebar.text_input("Edit script? Describe changes here:")
+if user_req:
+    st.info("Modifying code via GPT…")
+    try:
+        source_code = modify_code_with_gpt(source_code, user_req)
+        st.code(source_code, language="python")
+    except Exception as e:
+        st.error(f"GPT code modification failed: {e}")
+
+# 5) Run
+if st.button("Run Analysis"):
+    tmp_py = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
+    tmp_py.write(source_code.encode())
+    tmp_py.close()
+
+    try:
+        # ensure the uploaded dataframe is saved for the script to read
+        df.to_csv("input_data.csv", index=False)
+        # run the chosen script, passing the data filename if needed:
+        result = subprocess.run(
+            ["python", tmp_py.name, "input_data.csv"],
+            capture_output=True, text=True, check=True
+        )
+        st.text("Script Output:")
+        st.text(result.stdout)
+
+        # look for known output images:
+        for fname in [
+            "shannon_entropy_violin.png",
+            "per_peptide_kl_viridis.png",
+            "brain_entropy.png",
+            "kl_hist_all.png",
+            "brain_entropy.png",
+            "brain_entropy.png",
+            "brain_entropy.png",
+            "per_site_mi.png",
+            "fisher_information_surface.png",
+            "fim_heatmap.png",
+        ]:
+            if os.path.exists(fname):
+                st.image(fname, use_column_width=True)
+    except subprocess.CalledProcessError as e:
+        st.error(f"Error running script:\n{e.stderr}")
+    finally:
+        os.unlink(tmp_py.name)
