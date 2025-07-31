@@ -5,3 +5,5 @@ matplotlib
 pyts
 scipy
 openpyxl
+streamlit
+openai
