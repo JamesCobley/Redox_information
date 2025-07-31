@@ -55,12 +55,12 @@ except Exception as e:
 # 2) Choose script
 st.sidebar.header("Analysis Options")
 script_map = {
-    "Shannon Entropy":       "main/Oxi_Shannon.py",
-    "KL Divergence":         "main/Oxi_KL.py",
-    "Mutual Information":    "main/Oxi_MI.py",
-    "Per-site MI":           "main/Oxi_MI_per_site.py",
-    "Fisher Information":    "main/Oxi_FIM.py",
-    "Fisher–Rao Distance":   "main/Oxi_Fisher_Rao_d.py",
+    "Shannon Entropy":       "Oxi_Shannon.py",
+    "KL Divergence":         "Oxi_KL.py",
+    "Mutual Information":    "Oxi_MI.py",
+    "Per-site MI":           "Oxi_MI_per_site.py",
+    "Fisher Information":    "Oxi_FIM.py",
+    "Fisher–Rao Distance":   "Oxi_Fisher_Rao_d.py",
 }
 
 choice = st.sidebar.selectbox("Select metric to run", list(script_map.keys()))
