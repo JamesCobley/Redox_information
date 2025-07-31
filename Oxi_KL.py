@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import entropy
-from tqdm.auto import trange
 from matplotlib import cm
 
 # --- Params ---
@@ -42,6 +41,10 @@ for i in range(n_sites):
 
 kl_vals = np.array(kl_vals)
 
+# --- Compute and print mean KL ---
+mean_kl = kl_vals.mean()
+print(f"Mean per-site KL divergence: {mean_kl:.4f} bits\n")
+
 # --- Count divergent sites ---
 eps = 1e-6
 n_diverge = np.sum(kl_vals > eps)
@@ -53,13 +56,15 @@ print("Top 10 sites by per-site KL divergence:")
 for rank, i in enumerate(top_idx, 1):
     print(f"{rank:2d}. {sites[i]:25s}  KL = {kl_vals[i]:.4f} bits")
 
-# --- Plot histogram of the full distribution ---
+# --- Plot histogram of the full distribution with mean line ---
 plt.figure(figsize=(8,5))
 plt.hist(kl_vals, bins=30, color=cm.viridis(0.6), edgecolor="black")
-plt.axvline(0, color="gray", linestyle="--")
-plt.xlabel("Per‐Site KL Divergence (Young || Old)")
+plt.axvline(mean_kl, color="gray", linestyle="--", linewidth=2,
+            label=f"Mean KL = {mean_kl:.4f} bits")
+plt.xlabel("Per-Site KL Divergence (Young || Old)")
 plt.ylabel("Site Count")
-plt.title("Distribution of Per‐Site KL Divergences")
+plt.title("Distribution of Per-Site KL Divergences")
+plt.legend()
 plt.tight_layout()
 plt.savefig("kl_hist_all.png", dpi=300)
 plt.show()
