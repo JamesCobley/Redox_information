@@ -1,12 +1,12 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import entropy, ttest_ind
+from scipy.stats import entropy
+from tqdm.auto import trange
 
 # --- Params ---
 n_reps = 5
-bins = np.linspace(0, 1, 21)  # 20 bins: 0–1 in 5% steps
+bins   = np.linspace(0, 1, 21)   # 20 bins: 0–1 in 5% steps
+n_boot = 1000
 np.random.seed(42)
 
 # --- Load & extract brain columns ---
@@ -30,53 +30,60 @@ print(f"Mean Brain Redox State:")
 print(f"  Young: {mean_redox_y:.1f}%")
 print(f"  Old:   {mean_redox_o:.1f}%\n")
 
-# --- Simulate replicates per site ---
-def simulate_group(means, sems):
+# --- 1) Pooled entropy of the *true* means ---
+def pooled_entropy(vals, bins):
+    hist, _ = np.histogram(vals, bins=bins, density=True)
+    return entropy(hist + 1e-10, base=2)
+
+H_y_true = pooled_entropy(mean_y.values, bins)
+H_o_true = pooled_entropy(mean_o.values, bins)
+print(f"Pooled Shannon entropy (means):")
+print(f"  Young: {H_y_true:.3f} bits")
+print(f"  Old:   {H_o_true:.3f} bits\n")
+
+# --- 2) Bootstrap per-site entropy from SEM-derived replicates ---
+def simulate_entropy(means, sems):
     sd = sems * np.sqrt(n_reps)
-    sims = np.random.normal(loc=means.values[:, None],
-                             scale=sd.values[:, None])
-    return np.clip(sims, 0, 1)
+    sims = np.random.normal(loc=means.values[:,None],
+                             scale=sd.values[:,None])
+    sims = np.clip(sims, 0, 1)
+    # pool across sites & replicates
+    flat = sims.ravel()
+    hist, _ = np.histogram(flat, bins=bins, density=True)
+    return entropy(hist + 1e-10, base=2)
 
-sims_y = simulate_group(mean_y, sem_y)
-sims_o = simulate_group(mean_o, sem_o)
+boot_y, boot_o = [], []
+for _ in trange(n_boot):
+    boot_y.append(simulate_entropy(mean_y, sem_y))
+    boot_o.append(simulate_entropy(mean_o, sem_o))
 
-# --- Compute entropy per site ---
-def per_site_entropy(sim_matrix):
-    ent = []
-    for row in sim_matrix:
-        hist, _ = np.histogram(row, bins=bins, density=True)
-        ent.append(entropy(hist + 1e-10, base=2))
-    return np.array(ent)
-
-ent_y = per_site_entropy(sims_y)
-ent_o = per_site_entropy(sims_o)
-
-
-# 1) Summary stats helper
-def summary_stats(arr):
+# --- Summaries of bootstrap distributions ---
+def summarize_bootstrap(arr):
+    arr = np.array(arr)
     m  = arr.mean()
     sd = arr.std(ddof=1)
     cv = sd / m if m else np.nan
-    return m, sd, cv
+    ci_low, ci_high = np.percentile(arr, [2.5, 97.5])
+    return m, sd, cv, ci_low, ci_high
 
-m_y, sd_y, cv_y = summary_stats(ent_y)
-m_o, sd_o, cv_o = summary_stats(ent_o)
+my_b, sd_yb, cv_yb, lo_y, hi_y = summarize_bootstrap(boot_y)
+mo_b, sd_ob, cv_ob, lo_o, hi_o = summarize_bootstrap(boot_o)
 
-# 2) Cohen's d (unpaired, pooled SD)
+# --- Cohen's d on the *pooled* entropy estimates ---
+# (difference of bootstrapped distributions)
 def cohen_d(x, y):
     nx, ny = len(x), len(y)
     vx, vy = x.var(ddof=1), y.var(ddof=1)
-    s_pooled = np.sqrt(((nx-1)*vx + (ny-1)*vy) / (nx+ny-2))
-    return (y.mean() - x.mean()) / s_pooled
+    s_p = np.sqrt(((nx-1)*vx + (ny-1)*vy) / (nx+ny-2))
+    return (np.mean(y) - np.mean(x)) / s_p
 
-d = cohen_d(ent_y, ent_o)
+d = cohen_d(np.array(boot_y), np.array(boot_o))
 
-# 3) Print results
-print(f"Brain entropy (per-site):")
-print(f"  Young —  mean = {m_y:.3f} bits,  SD = {sd_y:.3f},  CV = {cv_y:.3f}")
-print(f"  Old   —  mean = {m_o:.3f} bits,  SD = {sd_o:.3f},  CV = {cv_o:.3f}")
+# --- Print everything ---
+print("Bootstrap summary of pooled-entropy estimates:")
+print(f" Young — mean={my_b:.3f}, SD={sd_yb:.3f}, CV={cv_yb:.3f}, 95% CI=({lo_y:.3f},{hi_y:.3f})")
+print(f" Old   — mean={mo_b:.3f}, SD={sd_ob:.3f}, CV={cv_ob:.3f}, 95% CI=({lo_o:.3f},{hi_o:.3f})")
 print(f"\nCohen’s d (Old vs Young) = {d:.3f}")
-
 
 # --- Assemble for plotting & test ---
 out = pd.DataFrame({
@@ -92,8 +99,3 @@ plt.ylabel("Entropy (bits)")
 plt.tight_layout()
 plt.savefig("brain_entropy.png", dpi=300)
 plt.show()
-
-# --- Statistical comparison ---
-t_stat, p_val = ttest_ind(ent_y, ent_o)
-print(f"Brain entropy: Young mean={ent_y.mean():.3f}, Old mean={ent_o.mean():.3f}")
-print(f"T-test p-value: {p_val:.3e}")
