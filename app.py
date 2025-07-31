@@ -10,7 +10,7 @@ import subprocess
 
 # --- Configuration ---
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-MODEL = "gpt-4-0613"
+MODEL = "gpt-3.5-turbo"
 
 # --- Helper: Call GPT to adjust code ---
 def modify_code_with_gpt(source_code: str, user_request: str) -> str:
