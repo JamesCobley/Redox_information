@@ -20,7 +20,7 @@ def modify_code_with_gpt(source_code: str, user_request: str) -> str:
         f"User requests: {user_request}\n"
         "Modify the code accordingly and return the full updated script without explanations."
     )
-    resp = openai.ChatCompletion.create(
+    resp = openai.chat.completions.create(
         model=MODEL,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides Python code updates."},
@@ -28,7 +28,7 @@ def modify_code_with_gpt(source_code: str, user_request: str) -> str:
         ],
         temperature=0
     )
-    return resp.choices[0].message.content
+    return resp.choices[0].message["content"]
 
 # --- App UI ---
 st.title("Interactive Information-Theoretic Analysis App")
@@ -62,13 +62,17 @@ script_map = {
     "Fisher Information":    "Oxi_FIM.py",
     "Fisher–Rao Distance":   "Oxi_Fisher_Rao_d.py",
 }
-
 choice = st.sidebar.selectbox("Select metric to run", list(script_map.keys()))
 
 # 3) Load source
-with open(script_map[choice], "r") as f:
-    source_code = f.read()
-st.sidebar.write(f"Loaded: `{script_map[choice]}`")
+source_path = script_map[choice]
+st.sidebar.write(f"Loaded: `{source_path}`")
+try:
+    with open(source_path, "r") as f:
+        source_code = f.read()
+except FileNotFoundError:
+    st.error(f"Script not found at `{source_path}`")
+    st.stop()
 
 # 4) Optional GPT code edit
 user_req = st.sidebar.text_input("Edit script? Describe changes here:")
@@ -80,32 +84,31 @@ if user_req:
     except Exception as e:
         st.error(f"GPT code modification failed: {e}")
 
-# 5) Run
+# 5) Run Analysis
 if st.button("Run Analysis"):
+    # Save user-uploaded data for the script
+    df.to_csv("input_data.csv", index=False)
+
+    # Write the (possibly edited) script to temp file
     tmp_py = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
     tmp_py.write(source_code.encode())
     tmp_py.close()
 
     try:
-        # ensure the uploaded dataframe is saved for the script to read
-        df.to_csv("input_data.csv", index=False)
-        # run the chosen script, passing the data filename if needed:
+        # Execute the script, passing the data path
         result = subprocess.run(
             ["python", tmp_py.name, "input_data.csv"],
             capture_output=True, text=True, check=True
         )
-        st.text("Script Output:")
+        st.subheader("Script Output")
         st.text(result.stdout)
 
-        # look for known output images:
+        # Display any known output images
         for fname in [
             "shannon_entropy_violin.png",
             "per_peptide_kl_viridis.png",
             "brain_entropy.png",
             "kl_hist_all.png",
-            "brain_entropy.png",
-            "brain_entropy.png",
-            "brain_entropy.png",
             "per_site_mi.png",
             "fisher_information_surface.png",
             "fim_heatmap.png",
@@ -116,3 +119,4 @@ if st.button("Run Analysis"):
         st.error(f"Error running script:\n{e.stderr}")
     finally:
         os.unlink(tmp_py.name)
+
